@@ -1,10 +1,12 @@
-import { processCSV } from "../../utils/csvProcessor";
+import { resumeTask, processCSV } from "../../utils/csvProcessor";
 import { NextResponse } from "next/server";
 
 export async function POST(request) {
   const { data, email, taskId = null } = await request.json();
   try {
-    const processedData = await processCSV(data, email, taskId);
+    const processedData = taskId
+      ? await resumeTask(taskId)
+      : await processCSV(data, email, taskId);
     return NextResponse.json(processedData);
   } catch (error) {
     console.error("Error processing CSV:", error);

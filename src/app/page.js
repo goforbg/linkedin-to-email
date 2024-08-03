@@ -9,6 +9,7 @@ export default function Home() {
   const [error, setError] = useState(null);
 
   const handleProcessedCSV = (processedData) => {
+    window.alert("Processing complete, please check email!");
     setResult((prevResult) =>
       prevResult ? [...prevResult, ...processedData] : processedData
     );
@@ -39,7 +40,7 @@ export default function Home() {
             <span className="block sm:inline">{error}</span>
           </div>
         )}
-        {result && <ResultDisplay data={result} />}
+        {/* {result && <ResultDisplay data={result} />} */}
       </div>
     </main>
   );

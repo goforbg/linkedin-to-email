@@ -12,6 +12,7 @@ export default function CSVUploader({ onProcessed, onError }) {
   const [processedCount, setProcessedCount] = useState(0);
   const [error, setError] = useState("");
   const [email, setEmail] = useState("");
+  const [taskId, setTaskId] = useState("");
 
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
@@ -51,7 +52,11 @@ export default function CSVUploader({ onProcessed, onError }) {
       const response = await fetch("/api/process-csv", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: dataToProcess, email: email })
+        body: JSON.stringify({
+          data: dataToProcess,
+          email: email,
+          taskId: taskId?.length === 0 ? null : taskId
+        })
       });
 
       if (!response.ok) {
@@ -71,21 +76,6 @@ export default function CSVUploader({ onProcessed, onError }) {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleProcessFirstRow = () => {
-
-    if (!email || email.length < 2 || !email.includes("@")) {
-      setError("Please enter a valid email.");
-      return;
-
-    }
-
-    if (!parsedData || parsedData.length < 2) {
-      setError("No data to process. Please upload a valid CSV file.");
-      return;
-    }
-    processCSV([parsedData[1]]);
   };
 
   const handleProcessEntireList = () => {
@@ -144,18 +134,29 @@ export default function CSVUploader({ onProcessed, onError }) {
         />
       </div>
 
+      <div className="mt-4">
+        <label
+          htmlFor="taskId"
+          className="block text-sm font-medium text-gray-700"
+        >
+          Task Id
+        </label>
+        <input
+          type="text"
+          name="taskId"
+          id="taskId"
+          className="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+          placeholder="Enter task Id to resume an old list (Optional)"
+          value={taskId}
+          onChange={(e) => setTaskId(e.target.value)}
+        />
+      </div>
+
       {error && (
         <div className="text-red-600 font-semibold">Error: {error}</div>
       )}
       {!isProcessingComplete && (
         <div className="flex space-x-4">
-          <button
-            onClick={handleProcessFirstRow}
-            disabled={isLoading || !parsedData || !email}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-          >
-            Process First Row (for testing)
-          </button>
           <button
             onClick={handleProcessEntireList}
             disabled={isLoading || !parsedData}

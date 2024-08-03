@@ -16,9 +16,15 @@ export async function processCSV(data, userEmail, existingTaskId = null) {
     throw new Error("Don't have API Keys Setup");
   }
 
+  if (!existingTaskId) {
+    console.log("no existing task id, we'll create one");
+  } else {
+    console.log("Existing task id...");
+  }
+
   // Use existing taskId if provided, otherwise create a new one
   const taskId = existingTaskId
-    ? ObjectId.createFromHexString(existingTaskId)
+    ? ObjectId.createFromHexString(existingTaskId.trim())
     : new ObjectId();
 
   // Initialize rate limiting counters for each key
@@ -38,10 +44,13 @@ export async function processCSV(data, userEmail, existingTaskId = null) {
   const db = client.db("linkedin_to_email");
   const collection = db.collection("linkedin_to_email_data");
 
-  const existingTask = await collection.findOne({ taskId });
+  // Initialize or fetch the task document
+  let taskDocument = await collection.findOne({ taskId });
 
-  if (!existingTask) {
-    await collection.insertOne({ taskId, userEmail, data: [] });
+  if (!taskDocument) {
+    taskDocument = { taskId, userEmail, data: [], userUploadedData: data };
+    await collection.insertOne(taskDocument);
+    console.log("No task document, adding one...");
   }
 
   for (const [index, row] of data.entries()) {
@@ -109,24 +118,17 @@ export async function processCSV(data, userEmail, existingTaskId = null) {
             const processedRow = { ...row, ...flattenedResult };
             processedData.push(processedRow);
 
-            // Save each processed row to the database
-            const updateResult = await collection.updateOne(
-              { taskId, "data.linkedin": row["linkedin"] },
-              { $set: { userEmail, "data.$": processedRow } },
-              { upsert: true }
+            // Update the task document with the processed row
+            console.log(
+              `updating ${
+                response?.data?.person?.name ?? "No name"
+              } to database`
             );
 
-            if (updateResult.matchedCount === 0) {
-              // If no document was matched, it means we need to push a new element
-              await collection.updateOne(
-                { taskId },
-                {
-                  $push: { data: processedRow },
-                  $set: { userEmail }
-                },
-                { upsert: true }
-              );
-            }
+            await collection.updateOne(
+              { taskId },
+              { $push: { data: processedRow } }
+            );
 
             success = true;
             keyUsage[currentKeyIndex].minuteCount++;
@@ -134,6 +136,7 @@ export async function processCSV(data, userEmail, existingTaskId = null) {
             keyUsage[currentKeyIndex].dayCount++;
 
             // Cycle to the next API key
+            console.log("Cycling to next api key...");
             currentKeyIndex = (currentKeyIndex + 1) % numApiKeys;
           } catch (error) {
             if (
@@ -145,8 +148,8 @@ export async function processCSV(data, userEmail, existingTaskId = null) {
               );
               currentKeyIndex = (currentKeyIndex + 1) % numApiKeys;
               retries++;
-              console.log("Waiting 5 seconds, previous key got banned...");
-              await sleep(5000);
+              console.log("Waiting 2 seconds, previous key got banned...");
+              await sleep(2000);
             } else {
               throw error;
             }
@@ -162,20 +165,12 @@ export async function processCSV(data, userEmail, existingTaskId = null) {
             result: "Error, unable to find contact after trying all API keys"
           };
           processedData.push(errorRow);
-          await collection.updateOne(
-            { taskId, "data.linkedin": row["linkedin"] },
-            { $set: { userEmail, "data.$": errorRow } },
-            { upsert: true }
-          );
+          await collection.updateOne({ taskId }, { $push: { data: errorRow } });
         }
       } else {
         const errorRow = { ...row, result: "Error, unable to find contact" };
         processedData.push(errorRow);
-        await collection.updateOne(
-          { taskId, "data.linkedin": row["linkedin"] },
-          { $set: { userEmail, "data.$": errorRow } },
-          { upsert: true }
-        );
+        await collection.updateOne({ taskId }, { $push: { data: errorRow } });
       }
     } catch (error) {
       console.error(
@@ -184,11 +179,7 @@ export async function processCSV(data, userEmail, existingTaskId = null) {
       );
       const errorRow = { ...row, result: "Error processing row" };
       processedData.push(errorRow);
-      await collection.updateOne(
-        { taskId, "data.linkedin": row["linkedin"] },
-        { $set: { userEmail, "data.$": errorRow } },
-        { upsert: true }
-      );
+      await collection.updateOne({ taskId }, { $push: { data: errorRow } });
     }
   }
 
@@ -270,35 +261,37 @@ async function checkAndUpdateRateLimits(keyUsage, keyIndex) {
   }
 
   // If we haven't hit any limits, add a small delay to be safe
-  console.log("Waiting five seconds...");
-  await sleep(5000); // 3 seconds between calls
+  console.log("Checking count & waiting 2 seconds... No Limits Hit");
+  await sleep(2000); // 2 seconds between calls
 }
 
 // Function to resume a task
 export async function resumeTask(taskId) {
+  console.log("Resuming task....");
+
   const client = new MongoClient(MONGODB_URI);
   await client.connect();
   const db = client.db("linkedin_to_email");
   const collection = db.collection("linkedin_to_email_data");
 
   const task = await collection.findOne({
-    taskId: ObjectId.createFromHexString(taskId)
+    taskId: ObjectId.createFromHexString(taskId.trim())
   });
+
   if (!task) {
     throw new Error("Task not found");
   }
 
-  const processedData = task.data;
   const userEmail = task.userEmail;
+  const processedData = task.data || [];
+
+  // Get the remaining unprocessed data
+  const remainingData = task.userUploadedData.slice(processedData.length);
 
   // Continue processing from where we left off
-  const remainingData = processedData.filter(
-    (row) => !row.result || row.result.startsWith("Error")
-  );
-
-  // Pass the existing taskId to processCSV
   const result = await processCSV(remainingData, userEmail, taskId);
 
   await client.close();
+
   return result;
 }
