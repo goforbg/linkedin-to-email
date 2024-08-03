@@ -262,6 +262,7 @@ async function checkAndUpdateRateLimits(keyUsage, keyIndex) {
 
   // If we haven't hit any limits, add a small delay to be safe
   console.log("Checking count & waiting 2 seconds... No Limits Hit");
+  
   await sleep(2000); // 2 seconds between calls
 }
 
