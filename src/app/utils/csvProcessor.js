@@ -38,6 +38,12 @@ export async function processCSV(data, userEmail, existingTaskId = null) {
   const db = client.db("linkedin_to_email");
   const collection = db.collection("linkedin_to_email_data");
 
+  const existingTask = await collection.findOne({ taskId });
+
+  if (!existingTask) {
+    await collection.insertOne({ taskId, userEmail, data: [] });
+  }
+
   for (const [index, row] of data.entries()) {
     try {
       if (row["linkedin"]) {
@@ -104,11 +110,23 @@ export async function processCSV(data, userEmail, existingTaskId = null) {
             processedData.push(processedRow);
 
             // Save each processed row to the database
-            await collection.updateOne(
+            const updateResult = await collection.updateOne(
               { taskId, "data.linkedin": row["linkedin"] },
               { $set: { userEmail, "data.$": processedRow } },
               { upsert: true }
             );
+
+            if (updateResult.matchedCount === 0) {
+              // If no document was matched, it means we need to push a new element
+              await collection.updateOne(
+                { taskId },
+                {
+                  $push: { data: processedRow },
+                  $set: { userEmail }
+                },
+                { upsert: true }
+              );
+            }
 
             success = true;
             keyUsage[currentKeyIndex].minuteCount++;
